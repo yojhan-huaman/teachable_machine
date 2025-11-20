@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Detector de Sueño – IA Minimalista</title>
+
+<style>
+    body {
+        font-family: "Inter", "Segoe UI", Arial, sans-serif;
+        background: linear-gradient(135deg, #0f0f12, #1a1a22);
+        margin: 0;
+        padding: 0;
+        color: #e5e5e5;
+        line-height: 1.6;
+    }
+
+    header {
+        text-align: center;
+        padding: 40px 20px;
+    }
+
+    h1 {
+        font-size: 36px;
+        margin: 0;
+        font-weight: 600;
+        color: #ffffff;
+    }
+
+    header p {
+        opacity: 0.6;
+        font-size: 16px;
+        color: #cfcfcf;
+    }
+
+    .info-section {
+        max-width: 900px;
+        background: rgba(40, 40, 52, 0.5);
+        padding: 25px;
+        border-radius: 18px;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+        color: #d8d8d8;
+    }
+
+    .info-section h2 {
+        margin-top: 0;
+        font-weight: 500;
+        text-align: center;
+        color: #fff;
+    }
+
+    .container {
+        max-width: 900px;
+        background: rgba(50, 50, 60, 0.55);
+        padding: 30px;
+        border-radius: 22px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(12px);
+    }
+
+    button {
+        background-color: #6366f1;
+        color: white;
+        padding: 12px 28px;
+        font-size: 17px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: 0.25s;
+        font-weight: 500;
+    }
+
+    button:hover {
+        background-color: #4f46e5;
+        transform: translateY(-2px);
+    }
+
+    #canvas {
+        border-radius: 18px;
+        display: block;
+        margin: 25px auto;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+    }
+
+    #statusBox {
+        width: 260px;
+        margin: 20px auto;
+        padding: 18px;
+        font-size: 22px;
+        font-weight: 600;
+        text-align: center;
+        border-radius: 14px;
+        transition: 0.3s ease-in-out;
+        background: rgba(255, 255, 255, 0.08);
+        color: #fff;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    #label-container div {
+        background: rgba(255, 255, 255, 0.08);
+        padding: 12px;
+        margin: 8px auto;
+        width: 270px;
+        border-radius: 10px;
+        font-size: 15px;
+        color: #e0e0e0;
+        font-weight: 500;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+
+    footer {
+        margin-top: 40px;
+        text-align: center;
+        opacity: 0.5;
+        font-size: 14px;
+        padding-bottom: 20px;
+        color: #bdbdbd;
+    }
+
+    .layout {
+        display: flex;
+        max-width: 1400px;
+        margin: auto;
+        gap: 25px;
+    }
+
+    .left-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 25px;
+    }
+
+    .right-panel {
+        flex: 1;
+    }
+
+    @media (max-width: 900px) {
+        .layout {
+            flex-direction: column;
+        }
+    }
+</style>
+</head>
+
+<body>
+
+<header>
+    <h1>Detector de Sueño con IA</h1>
+    <p>Monitoreo inteligente de postura – Modo oscuro elegante</p>
+</header>
+
+<div class="layout">
+
+    <div class="left-panel">
+
+        <div class="info-section">
+            <h2>¿Qué hace este sistema?</h2>
+            <p>
+                Analiza tu postura en tiempo real utilizando <strong>Inteligencia Artificial</strong>.
+                Gracias a Teachable Machine, detecta si estás dormido o despierto usando tu cámara.
+            </p>
+            <p>Estados detectados:</p>
+            <ul>
+                <li><strong>😴 Dormido:</strong> Cabeza inclinada y postura relajada.</li>
+                <li><strong>😀 Despierto:</strong> Postura firme y actividad visual.</li>
+            </ul>
+        </div>
+
+        <div class="info-section">
+            <h2>¿Cómo funciona?</h2>
+            <p>
+                La IA usa <strong>PoseNet</strong> para identificar puntos clave del cuerpo, y tu modelo clasifica el estado.
+                El procesamiento ocurre completamente en tu dispositivo.
+            </p>
+        </div>
+
+    </div>
+
+    <div class="right-panel">
+        <div class="container">
+            <div style="text-align: center;">
+                <button onclick="init()">Iniciar cámara</button>
+            </div>
+
+            <canvas id="canvas"></canvas>
+
+            <div id="statusBox">Estado: —</div>
+
+            <div id="label-container"></div>
+        </div>
+    </div>
+
+</div>
+
+<footer>Proyecto de IA – Modo oscuro elegante</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+<script>
+    const URL = "./my_model/";
+    let model, webcam, ctx, labelContainer, maxPredictions;
+
+    const audio = new Audio("audio.mp3");
+    let audioPlaying = false;
+
+    async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
+
+        model = await tmPose.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+
+        const size = 300;
+        webcam = new tmPose.Webcam(size, size, true);
+        await webcam.setup();
+        await webcam.play();
+        window.requestAnimationFrame(loop);
+
+        const canvas = document.getElementById("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        ctx = canvas.getContext("2d");
+
+        labelContainer = document.getElementById("label-container");
+        labelContainer.innerHTML = "";
+        for (let i = 0; i < maxPredictions; i++) {
+            labelContainer.appendChild(document.createElement("div"));
+        }
+    }
+
+    async function loop(timestamp) {
+        webcam.update();
+        await predict();
+        window.requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+        const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+        const prediction = await model.predict(posenetOutput);
+
+        let isSleeping = false;
+        let isAwake = false;
+
+        for (let i = 0; i < maxPredictions; i++) {
+            const name = prediction[i].className;
+            const prob = prediction[i].probability.toFixed(2);
+            labelContainer.childNodes[i].innerHTML = `${name}: ${prob}`;
+
+            if (name === "Dormido" && prob >= 0.90) isSleeping = true;
+            if (name === "Despierto" && prob >= 0.90) isAwake = true;
+        }
+
+        const statusBox = document.getElementById("statusBox");
+
+        if (isSleeping && !audioPlaying) {
+            statusBox.innerText = "Estado: 😴 Dormido";
+            statusBox.style.background = "#8b1e1e";
+            audio.play();
+            audioPlaying = true;
+            audio.onended = () => audioPlaying = false;
+        }
+
+        if (isAwake) {
+            statusBox.innerText = "Estado: 😀 Despierto";
+            statusBox.style.background = "#1e8b32";
+            audio.pause();
+            audio.currentTime = 0;
+            audioPlaying = false;
+        }
+
+        drawPose(pose);
+    }
+
+    function drawPose(pose) {
+        ctx.drawImage(webcam.canvas, 0, 0);
+        if (pose) {
+            tmPose.drawKeypoints(pose.keypoints, 0.5, ctx);
+            tmPose.drawSkeleton(pose.keypoints, 0.5, ctx);
+        }
+    }
+</script>
+
+</body>
+</html>

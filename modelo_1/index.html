@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Panel de Control IA</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            margin: 0;
+            padding: 24px;
+            background: linear-gradient(135deg, #0f1222, #141826);
+            color: #e8eefc;
+            font-family: 'Inter', sans-serif;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 30px;
+            font-weight: 700;
+        }
+
+        .controls button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .start {
+            background: linear-gradient(180deg, #6366f1, #4f46e5);
+            color: white;
+        }
+
+        .stop,
+        .ghost {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #e8eefc;
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 14px;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+        }
+
+        #webcam-container,
+        #drawingBox {
+            width: 340px;
+            height: 340px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        #drawingCanvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        #label-container {
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .label {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 10px 12px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+        }
+
+        #statusBox {
+            margin-top: 14px;
+            padding: 12px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: 700;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        #topClass {
+            margin-top: 12px;
+        }
+
+        footer {
+            margin-top: 20px;
+            text-align: center;
+            color: #bfc6ef;
+            opacity: .6;
+        }
+
+        @media(max-width:900px) {
+            .layout {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div>
+            <h1 id="welcomeText">Bienvenido —</h1>
+        </div>
+
+        <div class="controls">
+            <button id="startBtn" class="start">Iniciar cámara</button>
+            <button id="stopBtn" class="stop" disabled>Detener</button>
+            <button id="flipBtn" class="ghost" disabled>Flip: ON</button>
+            <button id="snapBtn" class="ghost" disabled>Fotografía</button>
+        </div>
+    </header>
+
+    <div class="layout">
+
+        <div class="card">
+            <h3>Visor</h3>
+            <div id="webcam-container">Cámara inactiva</div>
+            <div id="statusBox">Estado: —</div>
+        </div>
+
+        <div class="card">
+            <h3>Predicciones</h3>
+            <div id="label-container"></div>
+
+            <div id="topClass" class="label">
+                <span id="topClassName">—</span>
+                <span id="topClassProb">0.00</span>
+            </div>
+
+            <div id="drawingBox" style="margin-top:16px;">
+                <canvas id="drawingCanvas" width="340" height="340"></canvas>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <script>
+        let model, webcam, predicting = false, flipState = true;
+        let lastSpokenClass = "", speaking = false;
+        const MODEL = "./my_model/";
+
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const flipBtn = document.getElementById("flipBtn");
+        const snapBtn = document.getElementById("snapBtn");
+        const webcamContainer = document.getElementById("webcam-container");
+        const welcomeText = document.getElementById("welcomeText");
+        const labelContainer = document.getElementById("label-container");
+        const topClassName = document.getElementById("topClassName");
+        const topClassProb = document.getElementById("topClassProb");
+        const statusBox = document.getElementById("statusBox");
+        const drawingCanvas = document.getElementById("drawingCanvas");
+        const ctx = drawingCanvas.getContext("2d");
+
+        function speak(txt) {
+            if (speaking) return;
+            const msg = new SpeechSynthesisUtterance(txt);
+            msg.lang = "es-ES";
+            msg.rate = 1;
+            msg.pitch = 1;
+            speaking = true;
+            msg.onend = () => speaking = false;
+            speechSynthesis.speak(msg);
+        }
+
+        async function loadModel() {
+            model = await tmImage.load(MODEL + "model.json", MODEL + "metadata.json");
+        }
+
+        async function setupCam() {
+            webcam = new tmImage.Webcam(320, 320, flipState);
+            await webcam.setup();
+            await webcam.play();
+            webcamContainer.innerHTML = "";
+            webcamContainer.appendChild(webcam.canvas);
+        }
+
+        function updateLabels(preds) {
+            labelContainer.innerHTML = "";
+            preds.forEach(p => {
+                const d = document.createElement("div");
+                d.className = "label";
+                d.innerHTML = `<span>${p.className}</span><span>${p.probability.toFixed(2)}</span>`;
+                labelContainer.appendChild(d);
+            });
+        }
+
+        function drawPreview(preds) {
+            ctx.drawImage(webcam.canvas, 0, 0, drawingCanvas.width, drawingCanvas.height);
+            const t = preds[0];
+            ctx.fillStyle = "rgba(10,12,20,0.55)";
+            ctx.fillRect(8, 8, 260, 36);
+            ctx.fillStyle = "#fff";
+            ctx.font = "600 14px Inter";
+            ctx.fillText(t.className + " · " + t.probability.toFixed(2), 16, 32);
+        }
+
+        async function loop() {
+            if (!predicting) return;
+            webcam.update();
+            const preds = await model.predict(webcam.canvas);
+            preds.sort((a, b) => b.probability - a.probability);
+
+            let clase = preds[0].className;
+            let prob = preds[0].probability;
+            const umbral = 0.85;
+            let finalClass = clase;
+
+            if (prob < umbral) {
+                finalClass = "Usuario No Identificado";
+            }
+
+            if (finalClass !== lastSpokenClass) {
+                if (finalClass === "Usuario No Identificado") {
+                    speak("Usuario no identificado");
+                } else {
+                    speak("Bienvenido " + finalClass);
+                }
+                lastSpokenClass = finalClass;
+            }            
+
+            welcomeText.textContent = "Bienvenido " + finalClass;
+            topClassName.textContent = finalClass;
+            topClassProb.textContent = prob.toFixed(2);
+
+            updateLabels(preds);
+            drawPreview(preds);
+
+            if (prob >= 0.9) statusBox.style.background = "#1e8b32";
+            else if (prob >= 0.6) statusBox.style.background = "#ffb020";
+            else statusBox.style.background = "rgba(255,255,255,0.05)";
+            statusBox.textContent = "Estado: " + finalClass;
+
+            requestAnimationFrame(loop);
+        }
+
+        startBtn.onclick = async () => {
+            startBtn.disabled = true;
+            await loadModel();
+            await setupCam();
+            snapBtn.disabled = false;
+            flipBtn.disabled = false;
+            stopBtn.disabled = false;
+            predicting = true;
+            loop();
+        };
+
+        stopBtn.onclick = () => {
+            predicting = false;
+            if (webcam) { try { webcam.stop(); } catch (e) { } }
+            webcamContainer.innerHTML = "Cámara inactiva";
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            snapBtn.disabled = true;
+            flipBtn.disabled = true;
+            welcomeText.textContent = "Bienvenido —";
+            statusBox.textContent = "Estado: —";
+        };
+
+        flipBtn.onclick = async () => {
+            flipState = !flipState;
+            flipBtn.textContent = "Flip: " + (flipState ? "ON" : "OFF");
+            if (webcam) { try { webcam.stop(); } catch (e) { } }
+            await setupCam();
+        };
+
+        snapBtn.onclick = () => {
+            const c = document.createElement("canvas");
+            c.width = webcam.canvas.width;
+            c.height = webcam.canvas.height;
+            const cx = c.getContext("2d");
+            cx.drawImage(webcam.canvas, 0, 0);
+            const url = c.toDataURL("image/png");
+            const w = window.open("");
+            if (w) w.document.write(`<img src="${url}" style="max-width:100%">`);
+        };
+    </script>
+
+</body>
+
+</html>
